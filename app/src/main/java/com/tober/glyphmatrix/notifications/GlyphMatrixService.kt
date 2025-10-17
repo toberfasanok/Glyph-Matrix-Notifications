@@ -59,10 +59,14 @@ class GlyphMatrixService : Service() {
             val pkg = intent.getStringExtra(Constants.NOTIFICATION_EXTRA_PKG)
 
             val preferences = getSharedPreferences(Constants.PREFERENCES_NAME, MODE_PRIVATE)
-            val ignoredAppGlyphs = preferences.getString(Constants.PREFERENCES_IGNORED_APP_GLYPHS, null)
-            if (!ignoredAppGlyphs.isNullOrBlank() && !pkg.isNullOrBlank()) {
+
+            val active = preferences.getBoolean(Constants.PREFERENCES_ACTIVE, true)
+            if (!active) return START_REDELIVER_INTENT
+
+            val ignoredApps = preferences.getString(Constants.PREFERENCES_IGNORED_APPS, null)
+            if (!ignoredApps.isNullOrBlank() && !pkg.isNullOrBlank()) {
                 try {
-                    val arr = JSONArray(ignoredAppGlyphs)
+                    val arr = JSONArray(ignoredApps)
                     for (i in 0 until arr.length()) {
                         val obj = arr.getJSONObject(i)
                         val appGlyphPkg = obj.optString(Constants.APP_GLYPH_PKG)

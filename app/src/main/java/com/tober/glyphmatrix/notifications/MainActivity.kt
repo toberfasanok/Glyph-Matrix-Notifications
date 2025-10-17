@@ -53,6 +53,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -101,9 +103,9 @@ class MainActivity : ComponentActivity() {
         var newAppGlyphLabel by mutableStateOf("")
         var newAppGlyph by mutableStateOf("")
 
-        val ignoredAppGlyphs = mutableStateListOf<AppGlyph>().apply { addAll(readIgnoredAppGlyphs()) }
-        var newIgnoredAppGlyphPkg by mutableStateOf("")
-        var newIgnoredAppGlyphLabel by mutableStateOf("")
+        val ignoredApps = mutableStateListOf<AppGlyph>().apply { addAll(readIgnoredApps()) }
+        var newIgnoredAppPkg by mutableStateOf("")
+        var newIgnoredAppLabel by mutableStateOf("")
 
         val appSelectorActivityLauncher = registerForActivityResult(
             ActivityResultContracts.StartActivityForResult()
@@ -132,14 +134,14 @@ class MainActivity : ComponentActivity() {
                 val pkg = result.data?.getStringExtra(Constants.APP_GLYPH_PKG)
 
                 if (!pkg.isNullOrBlank()) {
-                    newIgnoredAppGlyphPkg = pkg
+                    newIgnoredAppPkg = pkg
 
                     try {
                         val appInfo = packageManager.getApplicationInfo(pkg, 0)
                         val appLabel = packageManager.getApplicationLabel(appInfo).toString()
-                        newIgnoredAppGlyphLabel = appLabel
+                        newIgnoredAppLabel = appLabel
                     } catch (_: Throwable) {
-                        newIgnoredAppGlyphLabel = pkg
+                        newIgnoredAppLabel = pkg
                     }
                 }
             }
@@ -304,6 +306,44 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         } else {
+                            val focusManager = LocalFocusManager.current
+                            val keyboardController = LocalSoftwareKeyboardController.current
+
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                var active by rememberSaveable { mutableStateOf(preferences.getBoolean(Constants.PREFERENCES_ACTIVE, true)) }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "App Active",
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+
+                                    Switch(
+                                        modifier = Modifier.padding(horizontal = 12.dp),
+                                        checked = active,
+                                        onCheckedChange = { checked ->
+                                            active = checked
+                                            preferences.edit { putBoolean(Constants.PREFERENCES_ACTIVE, checked) }
+                                            broadcastPreferencesUpdate()
+                                        },
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                            checkedTrackColor = MaterialTheme.colorScheme.primary,
+                                            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                                        )
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(25.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(10.dp))
+
                             Column(modifier = Modifier.padding(8.dp)) {
                                 Text(text = "Glyph Timeout", modifier = Modifier.padding(bottom = 8.dp))
 
@@ -472,98 +512,6 @@ class MainActivity : ComponentActivity() {
                             Spacer(modifier = Modifier.height(10.dp))
 
                             Column(modifier = Modifier.padding(8.dp)) {
-                                Text(text = "Ignored App Glyphs", modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
-
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(vertical = 4.dp),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clickable {
-                                                    val intent = Intent(this@MainActivity, AppSelectorActivity::class.java)
-                                                    ignoredAppSelectorActivityLauncher.launch(intent)
-                                                }
-                                        ) {
-                                            Text(
-                                                text = if (!newIgnoredAppGlyphLabel.isBlank()) newIgnoredAppGlyphLabel else "Choose an app",
-                                                style = MaterialTheme.typography.bodyLarge
-                                            )
-                                            Text(
-                                                text = if (!newIgnoredAppGlyphPkg.isBlank()) newIgnoredAppGlyphPkg else "-",
-                                                style = MaterialTheme.typography.bodySmall
-                                            )
-                                        }
-
-                                        Spacer(modifier = Modifier.size(8.dp))
-
-                                        Button(onClick = {
-                                            if (newIgnoredAppGlyphPkg.isBlank()) {
-                                                toast("Choose an app")
-                                                return@Button
-                                            }
-
-                                            ignoredAppGlyphs.removeAll { it.pkg == newIgnoredAppGlyphPkg }
-                                            ignoredAppGlyphs.add(AppGlyph(newIgnoredAppGlyphPkg, newIgnoredAppGlyphLabel, ""))
-                                            writeIgnoredAppGlyphs(ignoredAppGlyphs)
-
-                                            newIgnoredAppGlyphLabel = ""
-                                            newIgnoredAppGlyphPkg = ""
-                                            toast("Ignored app glyph saved")
-                                        }) {
-                                            Text(text = "+")
-                                        }
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                for (item in ignoredAppGlyphs) {
-                                    Card(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 4.dp),
-                                        shape = RoundedCornerShape(12.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(text = item.label, style = MaterialTheme.typography.bodyLarge)
-                                                Text(text = item.pkg, style = MaterialTheme.typography.bodySmall)
-                                            }
-
-                                            Spacer(modifier = Modifier.size(8.dp))
-
-                                            Button(onClick = {
-                                                ignoredAppGlyphs.remove(item)
-                                                writeIgnoredAppGlyphs(ignoredAppGlyphs)
-                                                toast("Ignored app glyph removed")
-                                            }) {
-                                                Text(text = "-")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(25.dp))
-                            HorizontalDivider()
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            Column(modifier = Modifier.padding(8.dp)) {
                                 Text(text = "App Glyphs", modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
 
                                 Card(
@@ -604,12 +552,13 @@ class MainActivity : ComponentActivity() {
                                             }
                                         }
 
-                                        Spacer(modifier = Modifier.size(12.dp))
-
                                         Column(
                                             modifier = Modifier
+                                                .padding(horizontal = 12.dp)
                                                 .weight(1f)
                                                 .clickable {
+                                                    focusManager.clearFocus(force = true)
+                                                    keyboardController?.hide()
                                                     val intent = Intent(this@MainActivity, AppSelectorActivity::class.java)
                                                     appSelectorActivityLauncher.launch(intent)
                                                 }
@@ -623,8 +572,6 @@ class MainActivity : ComponentActivity() {
                                                 style = MaterialTheme.typography.bodySmall
                                             )
                                         }
-
-                                        Spacer(modifier = Modifier.size(8.dp))
 
                                         Button(onClick = {
                                             if (newAppGlyphPkg.isBlank()) {
@@ -661,8 +608,6 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(8.dp))
-
                                 for (item in appGlyphs) {
                                     Card(
                                         modifier = Modifier
@@ -690,19 +635,103 @@ class MainActivity : ComponentActivity() {
                                                 Spacer(modifier = Modifier.size(56.dp))
                                             }
 
-                                            Spacer(modifier = Modifier.size(12.dp))
-
-                                            Column(modifier = Modifier.weight(1f)) {
+                                            Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
                                                 Text(text = item.label, style = MaterialTheme.typography.bodyLarge)
                                                 Text(text = item.pkg, style = MaterialTheme.typography.bodySmall)
                                             }
-
-                                            Spacer(modifier = Modifier.size(8.dp))
 
                                             Button(onClick = {
                                                 appGlyphs.remove(item)
                                                 writeAppGlyphs(appGlyphs)
                                                 toast("App glyph removed")
+                                            }) {
+                                                Text(text = "-")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(25.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text(text = "Ignored Apps", modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
+
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(vertical = 4.dp),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable {
+                                                    focusManager.clearFocus(force = true)
+                                                    keyboardController?.hide()
+                                                    val intent = Intent(this@MainActivity, AppSelectorActivity::class.java)
+                                                    ignoredAppSelectorActivityLauncher.launch(intent)
+                                                }
+                                        ) {
+                                            Text(
+                                                text = if (!newIgnoredAppLabel.isBlank()) newIgnoredAppLabel else "Choose an app",
+                                                style = MaterialTheme.typography.bodyLarge
+                                            )
+                                            Text(
+                                                text = if (!newIgnoredAppPkg.isBlank()) newIgnoredAppPkg else "-",
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+
+                                        Button(onClick = {
+                                            if (newIgnoredAppPkg.isBlank()) {
+                                                toast("Choose an app")
+                                                return@Button
+                                            }
+
+                                            ignoredApps.removeAll { it.pkg == newIgnoredAppPkg }
+                                            ignoredApps.add(AppGlyph(newIgnoredAppPkg, newIgnoredAppLabel, ""))
+                                            writeIgnoredApps(ignoredApps)
+
+                                            newIgnoredAppLabel = ""
+                                            newIgnoredAppPkg = ""
+                                            toast("Ignored app saved")
+                                        }) {
+                                            Text(text = "+")
+                                        }
+                                    }
+                                }
+
+                                for (item in ignoredApps) {
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(text = item.label, style = MaterialTheme.typography.bodyLarge)
+                                                Text(text = item.pkg, style = MaterialTheme.typography.bodySmall)
+                                            }
+
+                                            Button(onClick = {
+                                                ignoredApps.remove(item)
+                                                writeIgnoredApps(ignoredApps)
+                                                toast("Ignored app removed")
                                             }) {
                                                 Text(text = "-")
                                             }
@@ -737,18 +766,27 @@ class MainActivity : ComponentActivity() {
 
     private fun broadcastPreferencesUpdate() {
         val preferences = getSharedPreferences(Constants.PREFERENCES_NAME, MODE_PRIVATE)
+
+        val active = preferences.getBoolean(Constants.PREFERENCES_ACTIVE, true)
+
         val glyphTimeout = preferences.getLong(Constants.PREFERENCES_GLYPH_TIMEOUT, 5L)
-        val defaultGlyph = preferences.getString(Constants.PREFERENCES_DEFAULT_GLYPH, null)
-        val appGlyphs = preferences.getString(Constants.PREFERENCES_APP_GLYPHS, null)
         val animateGlyphs = preferences.getBoolean(Constants.PREFERENCES_ANIMATE_GLYPHS, true)
         val animateSpeed = preferences.getLong(Constants.PREFERENCES_ANIMATE_SPEED, 10L)
 
+        val defaultGlyph = preferences.getString(Constants.PREFERENCES_DEFAULT_GLYPH, null)
+        val appGlyphs = preferences.getString(Constants.PREFERENCES_APP_GLYPHS, null)
+        val ignoredApps = preferences.getString(Constants.PREFERENCES_IGNORED_APPS, null)
+
         val intent = Intent(Constants.ACTION_ON_PREFERENCES_UPDATE).apply {
+            putExtra(Constants.PREFERENCES_ACTIVE, active)
+
             putExtra(Constants.PREFERENCES_GLYPH_TIMEOUT, glyphTimeout)
-            putExtra(Constants.PREFERENCES_DEFAULT_GLYPH, defaultGlyph)
-            putExtra(Constants.PREFERENCES_APP_GLYPHS, appGlyphs)
             putExtra(Constants.PREFERENCES_ANIMATE_GLYPHS, animateGlyphs)
             putExtra(Constants.PREFERENCES_ANIMATE_SPEED, animateSpeed)
+
+            putExtra(Constants.PREFERENCES_DEFAULT_GLYPH, defaultGlyph)
+            putExtra(Constants.PREFERENCES_APP_GLYPHS, appGlyphs)
+            putExtra(Constants.PREFERENCES_IGNORED_APPS, ignoredApps)
         }
 
         sendBroadcast(intent)
@@ -776,8 +814,8 @@ class MainActivity : ComponentActivity() {
         return readAppGlyphMappings(Constants.PREFERENCES_APP_GLYPHS)
     }
 
-    private fun readIgnoredAppGlyphs(): MutableList<AppGlyph> {
-        return readAppGlyphMappings(Constants.PREFERENCES_IGNORED_APP_GLYPHS)
+    private fun readIgnoredApps(): MutableList<AppGlyph> {
+        return readAppGlyphMappings(Constants.PREFERENCES_IGNORED_APPS)
     }
 
     private fun writeAppGlyphMappings(list: List<AppGlyph>, preference: String) {
@@ -801,8 +839,8 @@ class MainActivity : ComponentActivity() {
         writeAppGlyphMappings(list, Constants.PREFERENCES_APP_GLYPHS)
     }
 
-    private fun writeIgnoredAppGlyphs(list: List<AppGlyph>) {
-        writeAppGlyphMappings(list, Constants.PREFERENCES_IGNORED_APP_GLYPHS)
+    private fun writeIgnoredApps(list: List<AppGlyph>) {
+        writeAppGlyphMappings(list, Constants.PREFERENCES_IGNORED_APPS)
     }
 
     private fun toast(message: String) {

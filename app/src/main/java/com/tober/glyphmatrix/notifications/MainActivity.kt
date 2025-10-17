@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
@@ -267,7 +268,30 @@ class MainActivity : ComponentActivity() {
                     ) {
                         if (!hasNotificationAccess) {
                             Column(modifier = Modifier.padding(8.dp)) {
-                                Text(text = "Notification access is required for the app to detect notifications and show glyphs automatically. Please grant Notification Access.")
+                                Text(text = "Notification access is required for the app to detect notifications and show glyphs automatically.")
+
+                                Spacer(modifier = Modifier.height(25.dp))
+
+                                Text(text = "1. Allow Restricted Settings:", fontWeight = FontWeight.Bold)
+                                Text(text = "App info -> ⋮ (top right) -> Allow Restricted Settings")
+
+                                Button(
+                                    onClick = {
+                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.fromParts("package", packageName, null)
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        }
+                                        startActivity(intent)
+                                    },
+                                    modifier = Modifier.padding(top = 12.dp)
+                                ) {
+                                    Text(text = "Open App Info")
+                                }
+
+                                Spacer(modifier = Modifier.height(25.dp))
+
+                                Text(text = "2. Allow Notification Access", fontWeight = FontWeight.Bold)
+                                Text(text = "Glyph Matrix Notifications -> Allow notification access -> Allow")
 
                                 Button(
                                     onClick = {

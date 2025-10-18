@@ -22,5 +22,6 @@ object Constants {
     const val NOTIFICATION_EXTRA_TEXT = "text"
 
     const val ACTION_ON_PREFERENCES_UPDATE = "com.tober.glyphmatrix.notifications.ACTION_ON_PREFERENCES_UPDATE"
+    const val ACTION_ON_SCREEN_ON = "com.tober.glyphmatrix.notifications.ACTION_ON_SCREEN_ON"
     const val ACTION_ON_GLYPH = "com.tober.glyphmatrix.notifications.ACTION_ON_GLYPH"
 }

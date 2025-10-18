@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 
 import androidx.core.graphics.createBitmap
@@ -30,19 +31,21 @@ class GlyphMatrixService : Service() {
 
     private var glyphMatrixManager: GlyphMatrixManager? = null
     private var glyphMatrixManagerCallback: GlyphMatrixManager.Callback? = null
-    private var initialized = false
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var clearRunnable: Runnable? = null
-
-    private val showDelay = 1750L
     private var showRunnable: Runnable? = null
-
+    private var clearRunnable: Runnable? = null
     private var animationRunnable: Runnable? = null
 
+    private var initialized = false
+    private var glyph: Bitmap? = null
+    private val showDelay = 1750L
     private val matrixSize = 25
     private val cx = (matrixSize - 1) / 2.0
     private val cy = (matrixSize - 1) / 2.0
+    private val maxRadius = ceil(sqrt(cx * cx + cy * cy)).toInt()
+
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -53,15 +56,24 @@ class GlyphMatrixService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(tag, "onStartCommand (ID $startId - ${intent?.action})")
+        val preferences = getSharedPreferences(Constants.PREFERENCES_NAME, MODE_PRIVATE)
 
-        if (intent?.action == Constants.ACTION_ON_GLYPH || intent?.hasExtra(Constants.NOTIFICATION_EXTRA_PKG) == true) {
+        val active = preferences.getBoolean(Constants.PREFERENCES_ACTIVE, true)
+        if (!active) return START_REDELIVER_INTENT
+
+        if (intent?.action == Constants.ACTION_ON_SCREEN_ON) {
+            showRunnable?.let { mainHandler.removeCallbacks(it) }
+
+            clearRunnable?.let { mainHandler.removeCallbacks(it) }
+            clearRunnable = null
+
+            animationRunnable?.let { mainHandler.removeCallbacks(it) }
+            animationRunnable = null
+
+            glyphMatrixManager?.closeAppMatrix()
+        }
+        else if (intent?.action == Constants.ACTION_ON_GLYPH || intent?.hasExtra(Constants.NOTIFICATION_EXTRA_PKG) == true) {
             val pkg = intent.getStringExtra(Constants.NOTIFICATION_EXTRA_PKG)
-
-            val preferences = getSharedPreferences(Constants.PREFERENCES_NAME, MODE_PRIVATE)
-
-            val active = preferences.getBoolean(Constants.PREFERENCES_ACTIVE, true)
-            if (!active) return START_REDELIVER_INTENT
 
             val ignoredApps = preferences.getString(Constants.PREFERENCES_IGNORED_APPS, null)
             if (!ignoredApps.isNullOrBlank() && !pkg.isNullOrBlank()) {
@@ -88,14 +100,10 @@ class GlyphMatrixService : Service() {
             glyphMatrixManager?.closeAppMatrix()
 
             val runnable = Runnable {
-                try {
-                    if (initialized) onGlyph(pkg)
-                    else onInit(pkg)
-                } catch (e: Exception) {
-                    Log.e(tag, "Error: $e")
-                } finally {
-                    showRunnable = null
-                }
+                if (initialized) onGlyph(pkg)
+                else onInit(pkg)
+
+                showRunnable = null
             }
 
             showRunnable = runnable
@@ -111,6 +119,8 @@ class GlyphMatrixService : Service() {
         Log.d(tag, "onDestroy")
 
         initialized = false
+
+        releaseWakeLock()
     }
 
     private fun onInit(pkg: String?) {
@@ -148,7 +158,6 @@ class GlyphMatrixService : Service() {
         Log.d(tag, "onGlyph")
 
         val preferences = getSharedPreferences(Constants.PREFERENCES_NAME, MODE_PRIVATE)
-        var glyph: Bitmap? = null
 
         val appGlyphs = preferences.getString(Constants.PREFERENCES_APP_GLYPHS, null)
         if (!appGlyphs.isNullOrBlank() && !notificationPkg.isNullOrBlank()) {
@@ -185,16 +194,34 @@ class GlyphMatrixService : Service() {
 
         val timeout = preferences.getLong(Constants.PREFERENCES_GLYPH_TIMEOUT, 5L).coerceAtLeast(1L) * 1000L
 
+        fun clear() {
+            try {
+                glyph = null
+                glyphMatrixManager?.closeAppMatrix()
+                releaseWakeLock()
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to close glyph matrix: $e")
+            }
+        }
+
         if (preferences.getBoolean(Constants.PREFERENCES_ANIMATE_GLYPHS, true)) {
             val speed = preferences.getLong(Constants.PREFERENCES_ANIMATE_SPEED, 10L).coerceAtLeast(1L)
 
-            showAnimated(glyph, timeout, speed)
+            setWakeLock(timeout + (2L * (matrixSize + 1).toLong() * speed))
+
+            glyph?.let { g ->
+                showAnimated(g, timeout, speed, ::clear)
+            }
         } else {
-            showSimple(glyph, timeout)
+            setWakeLock(timeout)
+
+            glyph?.let { g ->
+                showSimple(g, timeout, ::clear)
+            }
         }
     }
 
-    private fun showSimple(glyph: Bitmap, timeout: Long) {
+    private fun showSimple(glyph: Bitmap, timeout: Long, operation: () -> Unit) {
         try {
             val objBuilder = GlyphMatrixObject.Builder()
             val image = objBuilder
@@ -215,22 +242,16 @@ class GlyphMatrixService : Service() {
         }
 
         val runnable = Runnable {
-            try {
-                glyphMatrixManager?.closeAppMatrix()
-            } catch (e: Exception) {
-                Log.e(tag, "Failed to stop glyph: $e")
-            } finally {
-                clearRunnable = null
-            }
+            operation()
+            clearRunnable = null
         }
 
         clearRunnable = runnable
         mainHandler.postDelayed(runnable, timeout)
     }
 
-    private fun showAnimated(glyph: Bitmap, timeout: Long, speed: Long) {
+    private fun showAnimated(glyph: Bitmap, timeout: Long, speed: Long, operation: () -> Unit) {
         val src = glyph.scale(matrixSize, matrixSize)
-        val maxRadius = ceil(sqrt(cx * cx + cy * cy)).toInt()
 
         var radius = 0
 
@@ -263,7 +284,7 @@ class GlyphMatrixService : Service() {
                     animationRunnable = null
 
                     val runnable = Runnable {
-                        hideAnimated(glyph, speed)
+                        hideAnimated(glyph, speed, operation)
                     }
 
                     clearRunnable = runnable
@@ -276,13 +297,13 @@ class GlyphMatrixService : Service() {
         mainHandler.post(runnable)
     }
 
-    private fun hideAnimated(glyph: Bitmap, speed: Long) {
+    private fun hideAnimated(glyph: Bitmap, speed: Long, operation: () -> Unit) {
         clearRunnable = null
 
         val src = glyph.scale(matrixSize, matrixSize)
-        val maxRadius = ceil(sqrt(cx * cx + cy * cy)).toInt()
 
         var radius = maxRadius
+
         val runnable = object : Runnable {
             override fun run() {
                 if (radius >= 0) {
@@ -310,12 +331,7 @@ class GlyphMatrixService : Service() {
                     mainHandler.postDelayed(this, speed)
                 } else {
                     animationRunnable = null
-
-                    try {
-                        glyphMatrixManager?.closeAppMatrix()
-                    } catch (e: Exception) {
-                        Log.e(tag, "Failed to stop glyph: $e")
-                    }
+                    operation()
                 }
             }
         }
@@ -341,5 +357,35 @@ class GlyphMatrixService : Service() {
             }
         }
         return out
+    }
+
+    private fun setWakeLock(duration: Long) {
+        try {
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+
+            if (wakeLock == null) {
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GlyphMatrixService:WakeLock").apply {
+                    setReferenceCounted(false)
+                }
+            }
+
+            if (!wakeLock!!.isHeld) {
+                wakeLock!!.acquire(duration + 2000L)
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to set wakelock: $e")
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.let {
+                if (it.isHeld) it.release()
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to release wakelock: $e")
+        } finally {
+            wakeLock = null
+        }
     }
 }

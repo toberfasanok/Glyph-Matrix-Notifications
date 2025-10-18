@@ -1,13 +1,12 @@
 package com.tober.glyphmatrix.notifications
 
+import android.content.ComponentName
 import android.content.Intent
-import android.database.ContentObserver
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.provider.Settings
+import android.text.TextUtils
 import android.util.Log
 import android.widget.Toast
 
@@ -32,9 +31,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -77,21 +82,15 @@ data class AppGlyph(
 class MainActivity : ComponentActivity() {
     private val tag = "Main Activity"
 
+    private var hasAccessibilityServiceAccess by mutableStateOf(false)
     private var hasNotificationAccess by mutableStateOf(false)
-
-    private val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
-        override fun onChange(selfChange: Boolean) {
-            super.onChange(selfChange)
-            updateNotificationAccessState()
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         enableEdgeToEdge()
 
-        contentResolver.registerContentObserver(Settings.Secure.getUriFor("enabled_notification_listeners"), false, observer)
+        hasAccessibilityServiceAccess = getAccessibilityServiceAccess()
         hasNotificationAccess = getNotificationAccess()
 
         val preferences = getSharedPreferences(Constants.PREFERENCES_NAME, MODE_PRIVATE)
@@ -268,14 +267,14 @@ class MainActivity : ComponentActivity() {
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.Top
                     ) {
-                        if (!hasNotificationAccess) {
+                        if (!hasAccessibilityServiceAccess || !hasNotificationAccess) {
                             Column(modifier = Modifier.padding(8.dp)) {
-                                Text(text = "Notification access is required for the app to detect notifications and show glyphs automatically.")
+                                Text(text = "Accessibility service access and notification access is required for the app to detect notifications and show glyphs automatically.")
 
                                 Spacer(modifier = Modifier.height(25.dp))
 
                                 Text(text = "1. Allow Restricted Settings:", fontWeight = FontWeight.Bold)
-                                Text(text = "App info -> ⋮ (top right) -> Allow Restricted Settings")
+                                Text(text = "App Info -> ⋮ (top right) -> Allow Restricted Settings")
 
                                 Button(
                                     onClick = {
@@ -292,7 +291,21 @@ class MainActivity : ComponentActivity() {
 
                                 Spacer(modifier = Modifier.height(25.dp))
 
-                                Text(text = "2. Allow Notification Access", fontWeight = FontWeight.Bold)
+                                Text(text = "2. Allow Accessibility Service Access:", fontWeight = FontWeight.Bold)
+                                Text(text = "Glyph Matrix Notifications -> Use Glyph Matrix Notifications -> Allow")
+
+                                Button(
+                                    onClick = {
+                                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                                    },
+                                    modifier = Modifier.padding(top = 12.dp)
+                                ) {
+                                    Text(text = "Open Accessibility Service Access Settings")
+                                }
+
+                                Spacer(modifier = Modifier.height(25.dp))
+
+                                Text(text = "3. Allow Notification Access", fontWeight = FontWeight.Bold)
                                 Text(text = "Glyph Matrix Notifications -> Allow notification access -> Allow")
 
                                 Button(
@@ -355,28 +368,28 @@ class MainActivity : ComponentActivity() {
                                         val filtered = value.filter { it.isDigit() }
                                         savedGlyphTimeout = filtered
                                     },
-                                    label = { Text("Timeout (seconds)") },
+                                    label = { Text("(seconds)") },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     modifier = Modifier.padding(top = 12.dp)
                                 )
 
                                 Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Button(onClick = {
+                                    IconButton(onClick = {
                                         val timeout = savedGlyphTimeout.toLongOrNull() ?: 5L
                                         preferences.edit { putLong(Constants.PREFERENCES_GLYPH_TIMEOUT, timeout) }
                                         broadcastPreferencesUpdate()
                                         toast("Timeout saved")
                                     }) {
-                                        Text(text = "Save")
+                                        Icon(imageVector = Icons.Filled.Save, contentDescription = "Save")
                                     }
 
-                                    Button(onClick = {
+                                    IconButton(onClick = {
                                         savedGlyphTimeout = "5"
                                         preferences.edit { putLong(Constants.PREFERENCES_GLYPH_TIMEOUT, 5L) }
                                         broadcastPreferencesUpdate()
                                         toast("Timeout reset")
                                     }) {
-                                        Text(text = "Reset")
+                                        Icon(imageVector = Icons.Filled.Refresh, contentDescription = "Reset")
                                     }
                                 }
 
@@ -414,7 +427,7 @@ class MainActivity : ComponentActivity() {
                                 if (animateGlyphs) {
                                     Spacer(modifier = Modifier.height(15.dp))
 
-                                    Text(text = "Animate Speed", modifier = Modifier.padding(bottom = 8.dp))
+                                    Text(text = "Animation Speed", modifier = Modifier.padding(bottom = 8.dp))
 
                                     var savedAnimateSpeed by rememberSaveable { mutableStateOf(preferences.getLong(Constants.PREFERENCES_ANIMATE_SPEED, 10L).toString()) }
 
@@ -424,28 +437,28 @@ class MainActivity : ComponentActivity() {
                                             val filtered = value.filter { it.isDigit() }
                                             savedAnimateSpeed = filtered
                                         },
-                                        label = { Text("Speed (milliseconds)") },
+                                        label = { Text("(milliseconds)") },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                         modifier = Modifier.padding(top = 12.dp)
                                     )
 
                                     Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Button(onClick = {
+                                        IconButton(onClick = {
                                             val animateSpeed = savedAnimateSpeed.toLongOrNull() ?: 10L
                                             preferences.edit { putLong(Constants.PREFERENCES_ANIMATE_SPEED, animateSpeed) }
                                             broadcastPreferencesUpdate()
-                                            toast("Animate speed saved")
+                                            toast("Animation speed saved")
                                         }) {
-                                            Text(text = "Save")
+                                            Icon(imageVector = Icons.Filled.Save, contentDescription = "Save")
                                         }
 
-                                        Button(onClick = {
+                                        IconButton(onClick = {
                                             savedAnimateSpeed = "10"
                                             preferences.edit { putLong(Constants.PREFERENCES_ANIMATE_SPEED, 10L) }
                                             broadcastPreferencesUpdate()
-                                            toast("Animate speed reset")
+                                            toast("Animation speed reset")
                                         }) {
-                                            Text(text = "Reset")
+                                            Icon(imageVector = Icons.Filled.Refresh, contentDescription = "Reset")
                                         }
                                     }
                                 }
@@ -456,7 +469,7 @@ class MainActivity : ComponentActivity() {
                             Spacer(modifier = Modifier.height(10.dp))
 
                             Column(modifier = Modifier.padding(8.dp)) {
-                                Text(text = "Default Glyph", modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
+                                Text(text = "Default Glyph", modifier = Modifier.padding(vertical = 8.dp))
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -512,7 +525,7 @@ class MainActivity : ComponentActivity() {
                             Spacer(modifier = Modifier.height(10.dp))
 
                             Column(modifier = Modifier.padding(8.dp)) {
-                                Text(text = "App Glyphs", modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
+                                Text(text = "App Glyphs", modifier = Modifier.padding(vertical = 8.dp))
 
                                 Card(
                                     modifier = Modifier
@@ -573,14 +586,14 @@ class MainActivity : ComponentActivity() {
                                             )
                                         }
 
-                                        Button(onClick = {
+                                        IconButton(onClick = {
                                             if (newAppGlyphPkg.isBlank()) {
                                                 toast("Choose an app")
-                                                return@Button
+                                                return@IconButton
                                             }
                                             if (newAppGlyph.isBlank()) {
                                                 toast("Choose a glyph")
-                                                return@Button
+                                                return@IconButton
                                             }
 
                                             val safeName = newAppGlyphPkg.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
@@ -591,7 +604,7 @@ class MainActivity : ComponentActivity() {
                                             } catch (e: Exception) {
                                                 Log.e(tag, "Failed to save app glyph: $e")
                                                 toast("Failed to save app glyph")
-                                                return@Button
+                                                return@IconButton
                                             }
 
                                             appGlyphs.removeAll { it.pkg == newAppGlyphPkg }
@@ -603,7 +616,7 @@ class MainActivity : ComponentActivity() {
                                             newAppGlyphPkg = ""
                                             toast("App glyph saved")
                                         }) {
-                                            Text(text = "+")
+                                            Icon(imageVector = Icons.Filled.Save, contentDescription = "Save")
                                         }
                                     }
                                 }
@@ -640,12 +653,12 @@ class MainActivity : ComponentActivity() {
                                                 Text(text = item.pkg, style = MaterialTheme.typography.bodySmall)
                                             }
 
-                                            Button(onClick = {
+                                            IconButton(onClick = {
                                                 appGlyphs.remove(item)
                                                 writeAppGlyphs(appGlyphs)
                                                 toast("App glyph removed")
                                             }) {
-                                                Text(text = "-")
+                                                Icon(imageVector = Icons.Filled.Delete, contentDescription = "Delete")
                                             }
                                         }
                                     }
@@ -657,7 +670,7 @@ class MainActivity : ComponentActivity() {
                             Spacer(modifier = Modifier.height(10.dp))
 
                             Column(modifier = Modifier.padding(8.dp)) {
-                                Text(text = "Ignored Apps", modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
+                                Text(text = "Ignored Apps", modifier = Modifier.padding(vertical = 8.dp))
 
                                 Card(
                                     modifier = Modifier
@@ -691,10 +704,10 @@ class MainActivity : ComponentActivity() {
                                             )
                                         }
 
-                                        Button(onClick = {
+                                        IconButton(onClick = {
                                             if (newIgnoredAppPkg.isBlank()) {
                                                 toast("Choose an app")
-                                                return@Button
+                                                return@IconButton
                                             }
 
                                             ignoredApps.removeAll { it.pkg == newIgnoredAppPkg }
@@ -705,7 +718,7 @@ class MainActivity : ComponentActivity() {
                                             newIgnoredAppPkg = ""
                                             toast("Ignored app saved")
                                         }) {
-                                            Text(text = "+")
+                                            Icon(imageVector = Icons.Filled.Save, contentDescription = "Save")
                                         }
                                     }
                                 }
@@ -728,12 +741,12 @@ class MainActivity : ComponentActivity() {
                                                 Text(text = item.pkg, style = MaterialTheme.typography.bodySmall)
                                             }
 
-                                            Button(onClick = {
+                                            IconButton(onClick = {
                                                 ignoredApps.remove(item)
                                                 writeIgnoredApps(ignoredApps)
                                                 toast("Ignored app removed")
                                             }) {
-                                                Text(text = "-")
+                                                Icon(imageVector = Icons.Filled.Delete, contentDescription = "Delete")
                                             }
                                         }
                                     }
@@ -748,19 +761,43 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        updateNotificationAccessState()
+        updateAccessibilityServiceAccess()
+        updateNotificationAccess()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        contentResolver.unregisterContentObserver(observer)
+    }
+
+    private fun getAccessibilityServiceAccess(): Boolean {
+        val expectedComponentName = ComponentName(this, UnlockAccessibilityService::class.java)
+
+        val enabledServicesSetting = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+
+        val colonSplitter = TextUtils.SimpleStringSplitter(':')
+
+        colonSplitter.setString(enabledServicesSetting)
+        while (colonSplitter.hasNext()) {
+            val component = colonSplitter.next()
+            if (component.equals(expectedComponentName.flattenToString(), ignoreCase = true)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun updateAccessibilityServiceAccess() {
+        hasAccessibilityServiceAccess = getAccessibilityServiceAccess()
     }
 
     private fun getNotificationAccess(): Boolean {
         return NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
     }
 
-    private fun updateNotificationAccessState() {
+    private fun updateNotificationAccess() {
         hasNotificationAccess = getNotificationAccess()
     }
 

@@ -2,6 +2,7 @@ package com.tober.glyphmatrix.notifications
 
 import android.content.ComponentName
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
@@ -13,6 +14,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,11 +34,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,7 +55,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -85,6 +89,31 @@ class MainActivity : ComponentActivity() {
     private var hasAccessibilityServiceAccess by mutableStateOf(false)
     private var hasNotificationAccess by mutableStateOf(false)
 
+    private lateinit var preferences: SharedPreferences
+
+    private var active by mutableStateOf(true)
+
+    private var glyphTimeout by mutableStateOf("5")
+    private var animateGlyphs by mutableStateOf(true)
+    private var animateSpeed by mutableStateOf("10")
+
+    private var defaultGlyph by mutableStateOf<String?>(null)
+
+    private val appGlyphs = mutableStateListOf<AppGlyph>()
+    private var newAppGlyphPkg by mutableStateOf("")
+    private var newAppGlyphLabel by mutableStateOf("")
+    private var newAppGlyph by mutableStateOf("")
+
+    private val ignoredApps = mutableStateListOf<AppGlyph>()
+    private var newIgnoredAppPkg by mutableStateOf("")
+    private var newIgnoredAppLabel by mutableStateOf("")
+
+    private var appSelectorActivityLauncherCallback: ((String) -> Unit)? = null
+    private lateinit var appSelectorActivityLauncher: ActivityResultLauncher<Intent>
+
+    private var loadImageLauncherCallback: ((String) -> Unit)? = null
+    private lateinit var loadImageLauncher: ActivityResultLauncher<Array<String>>
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -93,119 +122,34 @@ class MainActivity : ComponentActivity() {
         hasAccessibilityServiceAccess = getAccessibilityServiceAccess()
         hasNotificationAccess = getNotificationAccess()
 
-        val preferences = getSharedPreferences(Constants.PREFERENCES_NAME, MODE_PRIVATE)
+        preferences = getSharedPreferences(Constants.PREFERENCES_NAME, MODE_PRIVATE)
 
-        var defaultGlyph by mutableStateOf(preferences.getString(Constants.PREFERENCES_DEFAULT_GLYPH, null))
+        active = preferences.getBoolean(Constants.PREFERENCES_ACTIVE, true)
 
-        val appGlyphs = mutableStateListOf<AppGlyph>().apply { addAll(readAppGlyphs()) }
-        var newAppGlyphPkg by mutableStateOf("")
-        var newAppGlyphLabel by mutableStateOf("")
-        var newAppGlyph by mutableStateOf("")
+        glyphTimeout = preferences.getLong(Constants.PREFERENCES_GLYPH_TIMEOUT, 5L).toString()
+        animateGlyphs = preferences.getBoolean(Constants.PREFERENCES_ANIMATE_GLYPHS, true)
+        animateSpeed = preferences.getLong(Constants.PREFERENCES_ANIMATE_SPEED, 10L).toString()
 
-        val ignoredApps = mutableStateListOf<AppGlyph>().apply { addAll(readIgnoredApps()) }
-        var newIgnoredAppPkg by mutableStateOf("")
-        var newIgnoredAppLabel by mutableStateOf("")
+        defaultGlyph = preferences.getString(Constants.PREFERENCES_DEFAULT_GLYPH, null)
 
-        val appSelectorActivityLauncher = registerForActivityResult(
-            ActivityResultContracts.StartActivityForResult()
-        ) { result ->
+        appGlyphs.clear(); appGlyphs.addAll(readAppGlyphs())
+        ignoredApps.clear(); ignoredApps.addAll(readIgnoredApps())
+
+        appSelectorActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
-                val pkg = result.data?.getStringExtra(Constants.APP_GLYPH_PKG)
+                val pkg = result.data?.getStringExtra("pkg")
 
                 if (!pkg.isNullOrBlank()) {
-                    newAppGlyphPkg = pkg
-
                     try {
-                        val appInfo = packageManager.getApplicationInfo(pkg, 0)
-                        val appLabel = packageManager.getApplicationLabel(appInfo).toString()
-                        newAppGlyphLabel = appLabel
-                    } catch (_: Throwable) {
-                        newAppGlyphLabel = pkg
+                        appSelectorActivityLauncherCallback?.invoke(pkg)
+                    } finally {
+                        appSelectorActivityLauncherCallback = null
                     }
                 }
             }
         }
 
-        val ignoredAppSelectorActivityLauncher = registerForActivityResult(
-            ActivityResultContracts.StartActivityForResult()
-        ) { result ->
-            if (result.resultCode == RESULT_OK) {
-                val pkg = result.data?.getStringExtra(Constants.APP_GLYPH_PKG)
-
-                if (!pkg.isNullOrBlank()) {
-                    newIgnoredAppPkg = pkg
-
-                    try {
-                        val appInfo = packageManager.getApplicationInfo(pkg, 0)
-                        val appLabel = packageManager.getApplicationLabel(appInfo).toString()
-                        newIgnoredAppLabel = appLabel
-                    } catch (_: Throwable) {
-                        newIgnoredAppLabel = pkg
-                    }
-                }
-            }
-        }
-
-        val defaultGlyphImageLauncher = registerForActivityResult(
-            ActivityResultContracts.OpenDocument()
-        ) { uri: Uri? ->
-            if (uri == null) {
-                return@registerForActivityResult
-            }
-
-            try {
-                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            } catch (_: Throwable) {}
-
-            val newFile = File(filesDir, "default_glyph_${System.currentTimeMillis()}.png")
-
-            try {
-                contentResolver.openInputStream(uri).use { inputStream ->
-                    if (inputStream == null) {
-                        toast("Failed to open selected image")
-                        return@registerForActivityResult
-                    }
-
-                    FileOutputStream(newFile).use { out ->
-                        val buffer = ByteArray(8 * 1024)
-
-                        while (true) {
-                            val read = inputStream.read(buffer)
-                            if (read <= 0) break
-                            out.write(buffer, 0, read)
-                        }
-
-                        out.flush()
-                    }
-                }
-
-                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(newFile.absolutePath, options)
-                val width = options.outWidth
-                val height = options.outHeight
-
-                if (width != height) {
-                    toast("Image must be 1:1 (square)")
-                }
-                else {
-                    preferences.getString(Constants.PREFERENCES_DEFAULT_GLYPH, null)?.let { oldFile ->
-                        try { File(oldFile).takeIf { it.exists() }?.delete() } catch (_: Throwable) {}
-                    }
-
-                    preferences.edit { putString(Constants.PREFERENCES_DEFAULT_GLYPH, newFile.absolutePath) }
-                    defaultGlyph = newFile.absolutePath
-                    toast("Default glyph saved")
-                    broadcastPreferencesUpdate()
-                }
-            } catch (e: Exception) {
-                Log.e(tag, "Failed to save default glyph: $e")
-                toast("Failed to save default glyph")
-            }
-        }
-
-        val appGlyphsImageLauncher = registerForActivityResult(
-            ActivityResultContracts.OpenDocument()
-        ) { uri: Uri? ->
+        loadImageLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri == null) {
                 return@registerForActivityResult
             }
@@ -215,9 +159,9 @@ class MainActivity : ComponentActivity() {
             } catch (_: Throwable) {}
 
             try {
-                val newFile = File(filesDir, "tmp_glyph_${System.currentTimeMillis()}.png")
+                val newFile = File(filesDir, "tmp_image_${System.currentTimeMillis()}.png")
 
-                filesDir.listFiles()?.filter { it.name.startsWith("tmp_glyph_") && it.name.endsWith(".png") && it.absolutePath != newFile.absolutePath }
+                filesDir.listFiles()?.filter { it.name.startsWith("tmp_image_") && it.name.endsWith(".png") && it.absolutePath != newFile.absolutePath }
                     ?.forEach { try { it.delete() } catch (_: Throwable) {} }
 
                 contentResolver.openInputStream(uri).use { inputStream ->
@@ -246,19 +190,25 @@ class MainActivity : ComponentActivity() {
 
                 if (width != height) {
                     toast("Image must be 1:1 (square)")
-                }
-                else {
-                    newAppGlyph = newFile.absolutePath
+                } else {
+                    try {
+                        loadImageLauncherCallback?.invoke(newFile.absolutePath)
+                    } finally {
+                        loadImageLauncherCallback = null
+                    }
                 }
             } catch (e: Exception) {
-                Log.e(tag, "Failed to save tmp glyph: $e")
-                toast("Failed to save tmp glyph")
+                Log.e(tag, "Failed to load image: $e")
+                toast("Failed to load image")
             }
         }
 
         setContent {
             GlyphMatrixNotificationsTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { paddingValues ->
+                    val focusManager = LocalFocusManager.current
+                    val keyboardController = LocalSoftwareKeyboardController.current
+
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -319,12 +269,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         } else {
-                            val focusManager = LocalFocusManager.current
-                            val keyboardController = LocalSoftwareKeyboardController.current
-
                             Column(modifier = Modifier.padding(8.dp)) {
-                                var active by rememberSaveable { mutableStateOf(preferences.getBoolean(Constants.PREFERENCES_ACTIVE, true)) }
-
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -360,13 +305,11 @@ class MainActivity : ComponentActivity() {
                             Column(modifier = Modifier.padding(8.dp)) {
                                 Text(text = "Glyph Timeout", modifier = Modifier.padding(bottom = 8.dp))
 
-                                var savedGlyphTimeout by rememberSaveable { mutableStateOf(preferences.getLong(Constants.PREFERENCES_GLYPH_TIMEOUT, 5L).toString()) }
-
                                 OutlinedTextField(
-                                    value = savedGlyphTimeout,
+                                    value = glyphTimeout,
                                     onValueChange = { value ->
                                         val filtered = value.filter { it.isDigit() }
-                                        savedGlyphTimeout = filtered
+                                        glyphTimeout = filtered
                                     },
                                     label = { Text("(seconds)") },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -375,7 +318,7 @@ class MainActivity : ComponentActivity() {
 
                                 Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     IconButton(onClick = {
-                                        val timeout = savedGlyphTimeout.toLongOrNull() ?: 5L
+                                        val timeout = glyphTimeout.toLongOrNull() ?: 5L
                                         preferences.edit { putLong(Constants.PREFERENCES_GLYPH_TIMEOUT, timeout) }
                                         broadcastPreferencesUpdate()
                                         toast("Timeout saved")
@@ -384,7 +327,7 @@ class MainActivity : ComponentActivity() {
                                     }
 
                                     IconButton(onClick = {
-                                        savedGlyphTimeout = "5"
+                                        glyphTimeout = "5"
                                         preferences.edit { putLong(Constants.PREFERENCES_GLYPH_TIMEOUT, 5L) }
                                         broadcastPreferencesUpdate()
                                         toast("Timeout reset")
@@ -394,8 +337,6 @@ class MainActivity : ComponentActivity() {
                                 }
 
                                 Spacer(modifier = Modifier.height(15.dp))
-
-                                var animateGlyphs by rememberSaveable { mutableStateOf(preferences.getBoolean(Constants.PREFERENCES_ANIMATE_GLYPHS, true)) }
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -429,13 +370,11 @@ class MainActivity : ComponentActivity() {
 
                                     Text(text = "Animation Speed", modifier = Modifier.padding(bottom = 8.dp))
 
-                                    var savedAnimateSpeed by rememberSaveable { mutableStateOf(preferences.getLong(Constants.PREFERENCES_ANIMATE_SPEED, 10L).toString()) }
-
                                     OutlinedTextField(
-                                        value = savedAnimateSpeed,
+                                        value = animateSpeed,
                                         onValueChange = { value ->
                                             val filtered = value.filter { it.isDigit() }
-                                            savedAnimateSpeed = filtered
+                                            animateSpeed = filtered
                                         },
                                         label = { Text("(milliseconds)") },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -444,7 +383,7 @@ class MainActivity : ComponentActivity() {
 
                                     Row(modifier = Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         IconButton(onClick = {
-                                            val animateSpeed = savedAnimateSpeed.toLongOrNull() ?: 10L
+                                            val animateSpeed = animateSpeed.toLongOrNull() ?: 10L
                                             preferences.edit { putLong(Constants.PREFERENCES_ANIMATE_SPEED, animateSpeed) }
                                             broadcastPreferencesUpdate()
                                             toast("Animation speed saved")
@@ -453,7 +392,7 @@ class MainActivity : ComponentActivity() {
                                         }
 
                                         IconButton(onClick = {
-                                            savedAnimateSpeed = "10"
+                                            animateSpeed = "10"
                                             preferences.edit { putLong(Constants.PREFERENCES_ANIMATE_SPEED, 10L) }
                                             broadcastPreferencesUpdate()
                                             toast("Animation speed reset")
@@ -476,20 +415,18 @@ class MainActivity : ComponentActivity() {
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement  = Arrangement.SpaceBetween
                                 ) {
-                                    val savedDefaultGlyph = remember(defaultGlyph) {
-                                        defaultGlyph?.let { path ->
-                                            try { BitmapFactory.decodeFile(path) } catch (_: Throwable) { null }
-                                        }
+                                    val tmp = remember(defaultGlyph) {
+                                        defaultGlyph.takeIf { it?.isNotBlank() ?: false }?.let { BitmapFactory.decodeFile(it) }
                                     }
 
-                                    if (savedDefaultGlyph != null) {
+                                    if (tmp != null) {
                                         Image(
-                                            painter = BitmapPainter(savedDefaultGlyph.asImageBitmap(), filterQuality = FilterQuality.None),
+                                            painter = BitmapPainter(tmp.asImageBitmap(), filterQuality = FilterQuality.None),
                                             contentDescription = "Default Glyph Preview",
                                             modifier = Modifier
                                                 .size(76.dp)
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .clickable { defaultGlyphImageLauncher.launch(arrayOf("image/*")) }
+                                                .clickable { saveDefaultGlyph() }
                                         )
                                     } else {
                                         Box(
@@ -497,7 +434,7 @@ class MainActivity : ComponentActivity() {
                                                 .size(76.dp)
                                                 .clip(RoundedCornerShape(8.dp))
                                                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                                                .clickable { defaultGlyphImageLauncher.launch(arrayOf("image/*")) },
+                                                .clickable { saveDefaultGlyph() },
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(text = "+", style = MaterialTheme.typography.bodySmall)
@@ -505,16 +442,8 @@ class MainActivity : ComponentActivity() {
                                     }
 
                                     if (defaultGlyph != null) {
-                                        Button(modifier = Modifier.padding(horizontal = 12.dp), onClick = {
-                                            preferences.getString(Constants.PREFERENCES_DEFAULT_GLYPH, null)?.let { path ->
-                                                try { File(path).takeIf { it.exists() }?.delete() } catch (_: Throwable) {}
-                                            }
-                                            preferences.edit { remove(Constants.PREFERENCES_DEFAULT_GLYPH) }
-                                            defaultGlyph = null
-                                            broadcastPreferencesUpdate()
-                                            toast("Default glyph removed")
-                                        }) {
-                                            Text(text = "-")
+                                        IconButton(onClick = { deleteDefaultGlyph() }) {
+                                            Icon(imageVector = Icons.Filled.Delete, contentDescription = "Delete")
                                         }
                                     }
                                 }
@@ -539,18 +468,18 @@ class MainActivity : ComponentActivity() {
                                             .padding(12.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        val tmpAppGlyph = remember(newAppGlyph) {
+                                        val tmp = remember(newAppGlyph) {
                                             newAppGlyph.takeIf { it.isNotBlank() }?.let { BitmapFactory.decodeFile(it) }
                                         }
 
-                                        if (tmpAppGlyph != null) {
+                                        if (tmp != null) {
                                             Image(
-                                                painter = BitmapPainter(tmpAppGlyph.asImageBitmap(), filterQuality = FilterQuality.None),
+                                                painter = BitmapPainter(tmp.asImageBitmap(), filterQuality = FilterQuality.None),
                                                 contentDescription = "App Glyph Preview",
                                                 modifier = Modifier
                                                     .size(56.dp)
                                                     .clip(RoundedCornerShape(8.dp))
-                                                    .clickable { appGlyphsImageLauncher.launch(arrayOf("image/*")) }
+                                                    .clickable { loadNewAppGlyph() }
                                             )
                                         } else {
                                             Box(
@@ -558,7 +487,7 @@ class MainActivity : ComponentActivity() {
                                                     .size(56.dp)
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .background(MaterialTheme.colorScheme.surfaceVariant)
-                                                    .clickable { appGlyphsImageLauncher.launch(arrayOf("image/*")) },
+                                                    .clickable { loadNewAppGlyph() },
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(text = "+", style = MaterialTheme.typography.bodySmall)
@@ -572,8 +501,8 @@ class MainActivity : ComponentActivity() {
                                                 .clickable {
                                                     focusManager.clearFocus(force = true)
                                                     keyboardController?.hide()
-                                                    val intent = Intent(this@MainActivity, AppSelectorActivity::class.java)
-                                                    appSelectorActivityLauncher.launch(intent)
+
+                                                    loadNewAppGlyphPkg()
                                                 }
                                         ) {
                                             Text(
@@ -586,36 +515,7 @@ class MainActivity : ComponentActivity() {
                                             )
                                         }
 
-                                        IconButton(onClick = {
-                                            if (newAppGlyphPkg.isBlank()) {
-                                                toast("Choose an app")
-                                                return@IconButton
-                                            }
-                                            if (newAppGlyph.isBlank()) {
-                                                toast("Choose a glyph")
-                                                return@IconButton
-                                            }
-
-                                            val safeName = newAppGlyphPkg.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
-                                            val dest = File(filesDir, "app_glyph_${safeName}_${System.currentTimeMillis()}.png")
-
-                                            try {
-                                                File(newAppGlyph).copyTo(dest, overwrite = true)
-                                            } catch (e: Exception) {
-                                                Log.e(tag, "Failed to save app glyph: $e")
-                                                toast("Failed to save app glyph")
-                                                return@IconButton
-                                            }
-
-                                            appGlyphs.removeAll { it.pkg == newAppGlyphPkg }
-                                            appGlyphs.add(AppGlyph(newAppGlyphPkg, newAppGlyphLabel, dest.absolutePath))
-                                            writeAppGlyphs(appGlyphs)
-
-                                            newAppGlyph = ""
-                                            newAppGlyphLabel = ""
-                                            newAppGlyphPkg = ""
-                                            toast("App glyph saved")
-                                        }) {
+                                        IconButton(onClick = { createAppGlyph() }) {
                                             Icon(imageVector = Icons.Filled.Save, contentDescription = "Save")
                                         }
                                     }
@@ -634,15 +534,17 @@ class MainActivity : ComponentActivity() {
                                                 .padding(12.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            val savedAppGlyph = remember(item.glyph) {
-                                                try { BitmapFactory.decodeFile(item.glyph) } catch (_: Throwable) { null }
+                                            val tmp = remember(item.glyph) {
+                                                item.glyph.takeIf { it.isNotBlank() }?.let { BitmapFactory.decodeFile(it) }
                                             }
 
-                                            if (savedAppGlyph != null) {
+                                            if (tmp != null) {
                                                 Image(
-                                                    painter = BitmapPainter(savedAppGlyph.asImageBitmap(), filterQuality = FilterQuality.None),
+                                                    painter = BitmapPainter(tmp.asImageBitmap(), filterQuality = FilterQuality.None),
                                                     contentDescription = null,
-                                                    modifier = Modifier.size(56.dp)
+                                                    modifier = Modifier
+                                                        .size(56.dp)
+                                                        .clickable { updateAppGlyph(item) }
                                                 )
                                             } else {
                                                 Spacer(modifier = Modifier.size(56.dp))
@@ -653,12 +555,23 @@ class MainActivity : ComponentActivity() {
                                                 Text(text = item.pkg, style = MaterialTheme.typography.bodySmall)
                                             }
 
-                                            IconButton(onClick = {
-                                                appGlyphs.remove(item)
-                                                writeAppGlyphs(appGlyphs)
-                                                toast("App glyph removed")
-                                            }) {
-                                                Icon(imageVector = Icons.Filled.Delete, contentDescription = "Delete")
+                                            var expanded by remember { mutableStateOf(false) }
+
+                                            Box {
+                                                IconButton(onClick = {
+                                                    focusManager.clearFocus(force = true)
+                                                    keyboardController?.hide()
+
+                                                    expanded = true
+                                                }) {
+                                                    Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                                                }
+
+                                                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                                                    DropdownMenuItem(text = { Text("Move Up") }, onClick = { changeAppGlyphOrder(item, -1); expanded = false })
+                                                    DropdownMenuItem(text = { Text("Move Down") }, onClick = { changeAppGlyphOrder(item, 1); expanded = false })
+                                                    DropdownMenuItem(text = { Text("Delete") }, onClick = { deleteAppGlyph(item); expanded = false })
+                                                }
                                             }
                                         }
                                     }
@@ -690,8 +603,8 @@ class MainActivity : ComponentActivity() {
                                                 .clickable {
                                                     focusManager.clearFocus(force = true)
                                                     keyboardController?.hide()
-                                                    val intent = Intent(this@MainActivity, AppSelectorActivity::class.java)
-                                                    ignoredAppSelectorActivityLauncher.launch(intent)
+
+                                                    loadNewIgnoredAppPkg()
                                                 }
                                         ) {
                                             Text(
@@ -704,20 +617,7 @@ class MainActivity : ComponentActivity() {
                                             )
                                         }
 
-                                        IconButton(onClick = {
-                                            if (newIgnoredAppPkg.isBlank()) {
-                                                toast("Choose an app")
-                                                return@IconButton
-                                            }
-
-                                            ignoredApps.removeAll { it.pkg == newIgnoredAppPkg }
-                                            ignoredApps.add(AppGlyph(newIgnoredAppPkg, newIgnoredAppLabel, ""))
-                                            writeIgnoredApps(ignoredApps)
-
-                                            newIgnoredAppLabel = ""
-                                            newIgnoredAppPkg = ""
-                                            toast("Ignored app saved")
-                                        }) {
+                                        IconButton(onClick = { createIgnoredApp() }) {
                                             Icon(imageVector = Icons.Filled.Save, contentDescription = "Save")
                                         }
                                     }
@@ -741,12 +641,23 @@ class MainActivity : ComponentActivity() {
                                                 Text(text = item.pkg, style = MaterialTheme.typography.bodySmall)
                                             }
 
-                                            IconButton(onClick = {
-                                                ignoredApps.remove(item)
-                                                writeIgnoredApps(ignoredApps)
-                                                toast("Ignored app removed")
-                                            }) {
-                                                Icon(imageVector = Icons.Filled.Delete, contentDescription = "Delete")
+                                            var expanded by remember { mutableStateOf(false) }
+
+                                            Box {
+                                                IconButton(onClick = {
+                                                    focusManager.clearFocus(force = true)
+                                                    keyboardController?.hide()
+
+                                                    expanded = true
+                                                }) {
+                                                    Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                                                }
+
+                                                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                                                    DropdownMenuItem(text = { Text("Move Up") }, onClick = { changeIgnoredAppOrder(item, -1); expanded = false })
+                                                    DropdownMenuItem(text = { Text("Move Down") }, onClick = { changeIgnoredAppOrder(item, 1); expanded = false })
+                                                    DropdownMenuItem(text = { Text("Delete") }, onClick = { deleteIgnoredApp(item); expanded = false })
+                                                }
                                             }
                                         }
                                     }
@@ -837,9 +748,9 @@ class MainActivity : ComponentActivity() {
         val arr = JSONArray(raw)
         for (i in 0 until arr.length()) {
             val obj = arr.getJSONObject(i)
-            val pkg = obj.optString(Constants.APP_GLYPH_PKG)
-            val label = obj.optString(Constants.APP_GLYPH_LABEL)
-            val glyph = obj.optString(Constants.APP_GLYPH_GLYPH)
+            val pkg = obj.optString("pkg")
+            val label = obj.optString("label")
+            val glyph = obj.optString("glyph")
 
             list.add(AppGlyph(pkg, label, glyph))
         }
@@ -860,9 +771,9 @@ class MainActivity : ComponentActivity() {
 
         for ((pkg, label, glyph) in list) {
             val obj = JSONObject()
-            obj.put(Constants.APP_GLYPH_PKG, pkg)
-            obj.put(Constants.APP_GLYPH_LABEL, label)
-            obj.put(Constants.APP_GLYPH_GLYPH, glyph)
+            obj.put("pkg", pkg)
+            obj.put("label", label)
+            obj.put("glyph", glyph)
             arr.put(obj)
         }
 
@@ -882,5 +793,212 @@ class MainActivity : ComponentActivity() {
 
     private fun toast(message: String) {
         Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun saveDefaultGlyph() {
+        loadImageLauncherCallback = fun(loaded: String) {
+            val newFile = File(filesDir, "default_glyph_${System.currentTimeMillis()}.png")
+            try {
+                File(loaded).copyTo(newFile, overwrite = true)
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to save default glyph: $e")
+                toast("Failed to save default glyph")
+                return
+            }
+
+            preferences.getString(Constants.PREFERENCES_DEFAULT_GLYPH, null)?.let { oldFile ->
+                try { File(oldFile).takeIf { it.exists() }?.delete() } catch (_: Throwable) {}
+            }
+
+            preferences.edit { putString(Constants.PREFERENCES_DEFAULT_GLYPH, newFile.absolutePath) }
+            defaultGlyph = newFile.absolutePath
+
+            toast("Default glyph saved")
+
+            broadcastPreferencesUpdate()
+        }
+
+        loadImageLauncher.launch(arrayOf("image/*"))
+    }
+
+    private fun deleteDefaultGlyph() {
+        preferences.getString(Constants.PREFERENCES_DEFAULT_GLYPH, null)?.let { path ->
+            try { File(path).takeIf { it.exists() }?.delete() } catch (_: Throwable) {}
+        }
+
+        preferences.edit { remove(Constants.PREFERENCES_DEFAULT_GLYPH) }
+        defaultGlyph = null
+
+        toast("Default glyph removed")
+
+        broadcastPreferencesUpdate()
+    }
+
+    private fun loadNewAppGlyph() {
+        loadImageLauncherCallback = fun(loaded: String) {
+            val newFile = File(filesDir, "tmp_app_glyph_${System.currentTimeMillis()}.png")
+            try {
+                File(loaded).copyTo(newFile, overwrite = true)
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to update glyph: $e")
+                toast("Failed to update glyph")
+                return
+            }
+
+            filesDir.listFiles()?.filter { it.name.startsWith("tmp_app_glyph_") && it.name.endsWith(".png") && it.absolutePath != newFile.absolutePath }
+                ?.forEach { try { it.delete() } catch (_: Throwable) {} }
+
+            newAppGlyph = newFile.absolutePath
+        }
+
+        loadImageLauncher.launch(arrayOf("image/*"))
+    }
+
+    private fun loadNewAppGlyphPkg() {
+        appSelectorActivityLauncherCallback = fun(loaded: String) {
+            newAppGlyphPkg = loaded
+
+            try {
+                val appInfo = packageManager.getApplicationInfo(loaded, 0)
+                val appLabel = packageManager.getApplicationLabel(appInfo).toString()
+                newAppGlyphLabel = appLabel
+            } catch (_: Throwable) {
+                newAppGlyphLabel = loaded
+            }
+        }
+
+        val intent = Intent(this@MainActivity, AppSelectorActivity::class.java)
+        appSelectorActivityLauncher.launch(intent)
+    }
+
+    private fun createAppGlyph() {
+        if (newAppGlyphPkg.isBlank()) {
+            toast("Choose an app")
+            return
+        }
+        if (newAppGlyph.isBlank()) {
+            toast("Choose a glyph")
+            return
+        }
+
+        val safeName = newAppGlyphPkg.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+        val newFile = File(filesDir, "app_glyph_${safeName}_${System.currentTimeMillis()}.png")
+
+        try {
+            File(newAppGlyph).copyTo(newFile, overwrite = true)
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to save app glyph: $e")
+            toast("Failed to save app glyph")
+            return
+        }
+
+        appGlyphs.removeAll { it.pkg == newAppGlyphPkg }
+        appGlyphs.add(AppGlyph(newAppGlyphPkg, newAppGlyphLabel, newFile.absolutePath))
+        writeAppGlyphs(appGlyphs)
+
+        newAppGlyph = ""
+        newAppGlyphLabel = ""
+        newAppGlyphPkg = ""
+        toast("App glyph saved")
+    }
+
+    private fun updateAppGlyph(item: AppGlyph) {
+        loadImageLauncherCallback = fun(loaded: String) {
+            val safeName = loaded.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+            val newFile = File(filesDir, "app_glyph_${safeName}_${System.currentTimeMillis()}.png")
+            try {
+                File(loaded).copyTo(newFile, overwrite = true)
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to update app glyph: $e")
+                toast("Failed to update app glyph")
+                return
+            }
+
+            val i = appGlyphs.indexOfFirst { it.glyph == item.glyph }
+            if (i != -1) {
+                appGlyphs[i] = AppGlyph(appGlyphs[i].pkg, appGlyphs[i].label, newFile.absolutePath)
+                writeAppGlyphs(appGlyphs)
+            }
+
+            try { File(item.glyph).delete() } catch (_: Throwable) {}
+
+            toast("App glyph updated")
+        }
+
+        loadImageLauncher.launch(arrayOf("image/*"))
+    }
+
+    private fun deleteAppGlyph(item: AppGlyph) {
+        appGlyphs.remove(item)
+        writeAppGlyphs(appGlyphs)
+        toast("App glyph removed")
+    }
+
+    private fun changeAppGlyphOrder(item: AppGlyph, n: Int) {
+        val i = appGlyphs.indexOf(item)
+        val p = i + n
+
+        if (i !in appGlyphs.indices || p !in appGlyphs.indices) return
+
+        val current = appGlyphs[i]
+        val next = appGlyphs[p]
+        
+        appGlyphs[i] = next
+        appGlyphs[p] = current
+
+        writeAppGlyphs(appGlyphs)
+    }
+
+    private fun loadNewIgnoredAppPkg() {
+        appSelectorActivityLauncherCallback = fun(loaded: String) {
+            newIgnoredAppPkg = loaded
+
+            try {
+                val appInfo = packageManager.getApplicationInfo(loaded, 0)
+                val appLabel = packageManager.getApplicationLabel(appInfo).toString()
+                newIgnoredAppLabel = appLabel
+            } catch (_: Throwable) {
+                newIgnoredAppLabel = loaded
+            }
+        }
+
+        val intent = Intent(this@MainActivity, AppSelectorActivity::class.java)
+        appSelectorActivityLauncher.launch(intent)
+    }
+
+    private fun createIgnoredApp() {
+        if (newIgnoredAppPkg.isBlank()) {
+            toast("Choose an app")
+            return
+        }
+
+        ignoredApps.removeAll { it.pkg == newIgnoredAppPkg }
+        ignoredApps.add(AppGlyph(newIgnoredAppPkg, newIgnoredAppLabel, ""))
+        writeIgnoredApps(ignoredApps)
+
+        newIgnoredAppLabel = ""
+        newIgnoredAppPkg = ""
+        toast("Ignored app saved")
+    }
+
+    private fun deleteIgnoredApp(item: AppGlyph) {
+        ignoredApps.remove(item)
+        writeIgnoredApps(ignoredApps)
+        toast("Ignored app removed")
+    }
+
+    private fun changeIgnoredAppOrder(item: AppGlyph, n: Int) {
+        val i = ignoredApps.indexOf(item)
+        val p = i + n
+
+        if (i !in ignoredApps.indices || p !in ignoredApps.indices) return
+
+        val current = ignoredApps[i]
+        val next = ignoredApps[p]
+        
+        ignoredApps[i] = next
+        ignoredApps[p] = current
+
+        writeIgnoredApps(ignoredApps)
     }
 }

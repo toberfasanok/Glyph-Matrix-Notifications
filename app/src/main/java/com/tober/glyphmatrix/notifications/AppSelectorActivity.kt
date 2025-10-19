@@ -98,7 +98,7 @@ class AppSelectorActivity : ComponentActivity() {
                                             keyboardController?.hide()
 
                                             val resultIntent = Intent().apply {
-                                                putExtra(Constants.APP_GLYPH_PKG, entry.pkg)
+                                                putExtra("pkg", entry.pkg)
                                             }
                                             setResult(RESULT_OK, resultIntent)
                                             finish()

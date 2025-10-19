@@ -13,10 +13,6 @@ object Constants {
     const val PREFERENCES_APP_GLYPHS = "app_glyphs"
     const val PREFERENCES_IGNORED_APPS = "ignored_apps"
 
-    const val APP_GLYPH_PKG = "pkg"
-    const val APP_GLYPH_LABEL = "label"
-    const val APP_GLYPH_GLYPH = "glyph"
-
     const val NOTIFICATION_EXTRA_PKG = "pkg"
     const val NOTIFICATION_EXTRA_TITLE = "title"
     const val NOTIFICATION_EXTRA_TEXT = "text"

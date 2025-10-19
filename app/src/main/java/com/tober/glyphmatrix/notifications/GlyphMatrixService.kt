@@ -81,7 +81,7 @@ class GlyphMatrixService : Service() {
                     val arr = JSONArray(ignoredApps)
                     for (i in 0 until arr.length()) {
                         val obj = arr.getJSONObject(i)
-                        val appGlyphPkg = obj.optString(Constants.APP_GLYPH_PKG)
+                        val appGlyphPkg = obj.optString("pkg")
                         if (appGlyphPkg == pkg) {
                             return START_REDELIVER_INTENT
                         }
@@ -165,8 +165,8 @@ class GlyphMatrixService : Service() {
                 val arr = JSONArray(appGlyphs)
                 for (i in 0 until arr.length()) {
                     val obj = arr.getJSONObject(i)
-                    val appGlyphPkg = obj.optString(Constants.APP_GLYPH_PKG)
-                    val appGlyph = obj.optString(Constants.APP_GLYPH_GLYPH)
+                    val appGlyphPkg = obj.optString("pkg")
+                    val appGlyph = obj.optString("glyph")
                     if (appGlyphPkg == notificationPkg && appGlyph.isNotBlank()) {
                         val f = File(appGlyph)
                         if (f.exists()) {
@@ -212,7 +212,8 @@ class GlyphMatrixService : Service() {
             glyph?.let { g ->
                 showAnimated(g, timeout, speed, ::clear)
             }
-        } else {
+        }
+        else {
             setWakeLock(timeout)
 
             glyph?.let { g ->

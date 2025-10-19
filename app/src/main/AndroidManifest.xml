@@ -15,7 +15,6 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.GlyphMatrixNotifications">
-
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -30,13 +29,11 @@
 
         <activity
             android:name=".AppSelectorActivity"
-            android:exported="false"
-        />
+            android:exported="false" />
 
         <service
             android:name=".GlyphMatrixService"
-            android:exported="false"
-        />
+            android:exported="false" />
 
         <service
             android:name=".NotificationService"

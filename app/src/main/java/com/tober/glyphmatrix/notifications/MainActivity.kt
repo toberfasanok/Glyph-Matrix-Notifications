@@ -104,6 +104,10 @@ class MainActivity : ComponentActivity() {
     private var newAppGlyphLabel by mutableStateOf("")
     private var newAppGlyph by mutableStateOf("")
 
+    private val contactGlyphs = mutableStateListOf<AppGlyph>()
+    private var newContactGlyphContact by mutableStateOf("")
+    private var newContactGlyph by mutableStateOf("")
+
     private val ignoredApps = mutableStateListOf<AppGlyph>()
     private var newIgnoredAppPkg by mutableStateOf("")
     private var newIgnoredAppLabel by mutableStateOf("")
@@ -133,6 +137,7 @@ class MainActivity : ComponentActivity() {
         defaultGlyph = preferences.getString(Constants.PREFERENCES_DEFAULT_GLYPH, null)
 
         appGlyphs.clear(); appGlyphs.addAll(readAppGlyphs())
+        contactGlyphs.clear(); contactGlyphs.addAll(readContactGlyphs())
         ignoredApps.clear(); ignoredApps.addAll(readIgnoredApps())
 
         appSelectorActivityLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -583,6 +588,133 @@ class MainActivity : ComponentActivity() {
                             Spacer(modifier = Modifier.height(10.dp))
 
                             Column(modifier = Modifier.padding(8.dp)) {
+                                Text(text = "Contact Glyphs", modifier = Modifier.padding(vertical = 8.dp))
+
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            val tmp = remember(newContactGlyph) {
+                                                newContactGlyph.takeIf { it.isNotBlank() }?.let { BitmapFactory.decodeFile(it) }
+                                            }
+
+                                            if (tmp != null) {
+                                                Image(
+                                                    painter = BitmapPainter(tmp.asImageBitmap(), filterQuality = FilterQuality.None),
+                                                    contentDescription = "Contact Glyph Preview",
+                                                    modifier = Modifier
+                                                        .size(56.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .clickable { loadNewContactGlyph() }
+                                                )
+                                            } else {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(56.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                        .clickable { loadNewContactGlyph() },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(text = "+", style = MaterialTheme.typography.bodySmall)
+                                                }
+                                            }
+
+                                            IconButton(onClick = {
+                                                focusManager.clearFocus(true)
+                                                keyboardController?.hide()
+
+                                                createContactGlyph()
+                                            }) {
+                                                Icon(imageVector = Icons.Filled.Save, contentDescription = "Save")
+                                            }
+                                        }
+
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(bottom = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            OutlinedTextField(
+                                                value = newContactGlyphContact,
+                                                onValueChange = { newContactGlyphContact = it },
+                                                label = { Text("(contact)") },
+                                                keyboardOptions = KeyboardOptions.Default,
+                                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                for (item in contactGlyphs) {
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            val tmp = remember(item.glyph) {
+                                                item.glyph.takeIf { it.isNotBlank() }?.let { BitmapFactory.decodeFile(it) }
+                                            }
+
+                                            if (tmp != null) {
+                                                Image(
+                                                    painter = BitmapPainter(tmp.asImageBitmap(), filterQuality = FilterQuality.None),
+                                                    contentDescription = null,
+                                                    modifier = Modifier
+                                                        .size(56.dp)
+                                                        .clickable { updateContactGlyph(item) }
+                                                )
+                                            } else {
+                                                Spacer(modifier = Modifier.size(56.dp))
+                                            }
+
+                                            Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                                Text(text = item.label, style = MaterialTheme.typography.bodyLarge)
+                                            }
+
+                                            var expanded by remember { mutableStateOf(false) }
+
+                                            Box {
+                                                IconButton(onClick = { expanded = true }) {
+                                                    Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                                                }
+
+                                                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                                                    DropdownMenuItem(text = { Text("Move Up") }, onClick = { changeContactGlyphOrder(item, -1); expanded = false })
+                                                    DropdownMenuItem(text = { Text("Move Down") }, onClick = { changeContactGlyphOrder(item, 1); expanded = false })
+                                                    DropdownMenuItem(text = { Text("Delete") }, onClick = { deleteContactGlyph(item); expanded = false })
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(25.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Column(modifier = Modifier.padding(8.dp)) {
                                 Text(text = "Ignored Apps", modifier = Modifier.padding(vertical = 8.dp))
 
                                 Card(
@@ -762,6 +894,10 @@ class MainActivity : ComponentActivity() {
         return readAppGlyphMappings(Constants.PREFERENCES_APP_GLYPHS)
     }
 
+    private fun readContactGlyphs(): MutableList<AppGlyph> {
+        return readAppGlyphMappings(Constants.PREFERENCES_CONTACT_GLYPHS)
+    }
+
     private fun readIgnoredApps(): MutableList<AppGlyph> {
         return readAppGlyphMappings(Constants.PREFERENCES_IGNORED_APPS)
     }
@@ -785,6 +921,10 @@ class MainActivity : ComponentActivity() {
 
     private fun writeAppGlyphs(list: List<AppGlyph>) {
         writeAppGlyphMappings(list, Constants.PREFERENCES_APP_GLYPHS)
+    }
+
+    private fun writeContactGlyphs(list: List<AppGlyph>) {
+        writeAppGlyphMappings(list, Constants.PREFERENCES_CONTACT_GLYPHS)
     }
 
     private fun writeIgnoredApps(list: List<AppGlyph>) {
@@ -947,6 +1087,103 @@ class MainActivity : ComponentActivity() {
         appGlyphs[p] = current
 
         writeAppGlyphs(appGlyphs)
+    }
+
+    private fun loadNewContactGlyph() {
+        loadImageLauncherCallback = fun(loaded: String) {
+            val newFile = File(filesDir, "tmp_contact_glyph_${System.currentTimeMillis()}.png")
+            try {
+                File(loaded).copyTo(newFile, overwrite = true)
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to update contact glyph: $e")
+                toast("Failed to update contact glyph")
+                return
+            }
+
+            filesDir.listFiles()?.filter { it.name.startsWith("tmp_contact_glyph_") && it.name.endsWith(".png") && it.absolutePath != newFile.absolutePath }
+                ?.forEach { try { it.delete() } catch (_: Throwable) {} }
+
+            newContactGlyph = newFile.absolutePath
+        }
+
+        loadImageLauncher.launch(arrayOf("image/*"))
+    }
+
+    private fun createContactGlyph() {
+        if (newContactGlyphContact.isBlank()) {
+            toast("Specify a contact")
+            return
+        }
+        if (newContactGlyph.isBlank()) {
+            toast("Choose a glyph")
+            return
+        }
+
+        val safeName = newContactGlyphContact.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+        val newFile = File(filesDir, "contact_glyph_${safeName}_${System.currentTimeMillis()}.png")
+
+        try {
+            File(newContactGlyph).copyTo(newFile, overwrite = true)
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to save contact glyph: $e")
+            toast("Failed to save contact glyph")
+            return
+        }
+
+        contactGlyphs.removeAll { it.label == newContactGlyphContact }
+        contactGlyphs.add(AppGlyph("", newContactGlyphContact, newFile.absolutePath))
+        writeContactGlyphs(contactGlyphs)
+
+        newContactGlyph = ""
+        newContactGlyphContact = ""
+        toast("Contact glyph saved")
+    }
+
+    private fun updateContactGlyph(item: AppGlyph) {
+        loadImageLauncherCallback = fun(loaded: String) {
+            val safeName = loaded.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+            val newFile = File(filesDir, "contact_glyph_${safeName}_${System.currentTimeMillis()}.png")
+            try {
+                File(loaded).copyTo(newFile, overwrite = true)
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to update contact glyph: $e")
+                toast("Failed to update contact glyph")
+                return
+            }
+
+            val i = contactGlyphs.indexOfFirst { it.glyph == item.glyph }
+            if (i != -1) {
+                contactGlyphs[i] = AppGlyph(contactGlyphs[i].pkg, contactGlyphs[i].label, newFile.absolutePath)
+                writeContactGlyphs(contactGlyphs)
+            }
+
+            try { File(item.glyph).delete() } catch (_: Throwable) {}
+
+            toast("Contact glyph updated")
+        }
+
+        loadImageLauncher.launch(arrayOf("image/*"))
+    }
+
+    private fun deleteContactGlyph(item: AppGlyph) {
+        contactGlyphs.remove(item)
+        writeContactGlyphs(contactGlyphs)
+        toast("Contact glyph removed")
+    }
+
+    private fun changeContactGlyphOrder(item: AppGlyph, n: Int) {
+        val i = contactGlyphs.indexOf(item)
+        val p = i + n
+
+        if (i !in contactGlyphs.indices || p !in contactGlyphs.indices) return
+
+        val current = contactGlyphs[i]
+        val next = contactGlyphs[p]
+        
+        contactGlyphs[i] = next
+        contactGlyphs[p] = current
+
+        writeContactGlyphs(contactGlyphs)
     }
 
     private fun loadNewIgnoredAppPkg() {

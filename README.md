@@ -17,4 +17,5 @@ Download the APK (app.apk) and customize
 - Glyph Animation
 - Default Glyph
 - Glyphs for Specific Apps
+- Glyphs for Specific Contacts
 - Ignored Apps

@@ -11,13 +11,13 @@ object Constants {
 
     const val PREFERENCES_DEFAULT_GLYPH = "default_glyph"
     const val PREFERENCES_APP_GLYPHS = "app_glyphs"
+    const val PREFERENCES_CONTACT_GLYPHS = "contact_glyphs"
     const val PREFERENCES_IGNORED_APPS = "ignored_apps"
 
     const val NOTIFICATION_EXTRA_PKG = "pkg"
-    const val NOTIFICATION_EXTRA_TITLE = "title"
-    const val NOTIFICATION_EXTRA_TEXT = "text"
+    const val NOTIFICATION_EXTRA_CONTACT = "contact"
 
     const val ACTION_ON_PREFERENCES_UPDATE = "com.tober.glyphmatrix.notifications.ACTION_ON_PREFERENCES_UPDATE"
+    const val ACTION_ON_NOTIFICATION = "com.tober.glyphmatrix.notifications.ACTION_ON_NOTIFICATION"
     const val ACTION_ON_SCREEN_ON = "com.tober.glyphmatrix.notifications.ACTION_ON_SCREEN_ON"
-    const val ACTION_ON_GLYPH = "com.tober.glyphmatrix.notifications.ACTION_ON_GLYPH"
 }

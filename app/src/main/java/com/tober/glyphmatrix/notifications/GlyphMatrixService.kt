@@ -182,12 +182,12 @@ class GlyphMatrixService : Service() {
                 val arr = JSONArray(contactGlyphs)
                 for (i in 0 until arr.length()) {
                     val obj = arr.getJSONObject(i)
-                    val appGlyphContact = obj.optString("label")
-                    val appGlyph = obj.optString("glyph")
-                    if (appGlyph.isNotBlank() && notificationContact.contains(appGlyphContact, ignoreCase = true)) {
-                        val f = File(appGlyph)
+                    val contactGlyphContact = obj.optString("label")
+                    val contactGlyph = obj.optString("glyph")
+                    if (contactGlyph.isNotBlank() && notificationContact.contains(contactGlyphContact, ignoreCase = true)) {
+                        val f = File(contactGlyph)
                         if (f.exists()) {
-                            glyph = BitmapFactory.decodeFile(appGlyph)
+                            glyph = BitmapFactory.decodeFile(contactGlyph)
                             break
                         }
                     }
@@ -195,23 +195,25 @@ class GlyphMatrixService : Service() {
             } catch (_: Throwable) {}
         }
 
-        val appGlyphs = preferences.getString(Constants.PREFERENCES_APP_GLYPHS, null)
-        if (!appGlyphs.isNullOrBlank() && !notificationPkg.isNullOrBlank()) {
-            try {
-                val arr = JSONArray(appGlyphs)
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    val appGlyphPkg = obj.optString("pkg")
-                    val appGlyph = obj.optString("glyph")
-                    if (appGlyphPkg == notificationPkg && appGlyph.isNotBlank()) {
-                        val f = File(appGlyph)
-                        if (f.exists()) {
-                            glyph = BitmapFactory.decodeFile(appGlyph)
-                            break
+        if (glyph == null) {
+            val appGlyphs = preferences.getString(Constants.PREFERENCES_APP_GLYPHS, null)
+            if (!appGlyphs.isNullOrBlank() && !notificationPkg.isNullOrBlank()) {
+                try {
+                    val arr = JSONArray(appGlyphs)
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        val appGlyphPkg = obj.optString("pkg")
+                        val appGlyph = obj.optString("glyph")
+                        if (appGlyphPkg == notificationPkg && appGlyph.isNotBlank()) {
+                            val f = File(appGlyph)
+                            if (f.exists()) {
+                                glyph = BitmapFactory.decodeFile(appGlyph)
+                                break
+                            }
                         }
                     }
-                }
-            } catch (_: Throwable) {}
+                } catch (_: Throwable) {}
+            }
         }
 
         if (glyph == null) {

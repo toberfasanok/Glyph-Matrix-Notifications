@@ -63,6 +63,8 @@ class GlyphMatrixService : Service() {
         if (!active) return START_REDELIVER_INTENT
 
         if (intent?.action == Constants.ACTION_ON_SCREEN_ON) {
+            if (glyph == null) return START_REDELIVER_INTENT
+
             showRunnable?.let { mainHandler.removeCallbacks(it) }
 
             clearRunnable?.let { mainHandler.removeCallbacks(it) }

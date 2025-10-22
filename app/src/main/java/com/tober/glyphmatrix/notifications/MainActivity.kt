@@ -855,6 +855,7 @@ class MainActivity : ComponentActivity() {
 
         val defaultGlyph = preferences.getString(Constants.PREFERENCES_DEFAULT_GLYPH, null)
         val appGlyphs = preferences.getString(Constants.PREFERENCES_APP_GLYPHS, null)
+        val contactGlyphs = preferences.getString(Constants.PREFERENCES_CONTACT_GLYPHS, null)
         val ignoredApps = preferences.getString(Constants.PREFERENCES_IGNORED_APPS, null)
 
         val intent = Intent(Constants.ACTION_ON_PREFERENCES_UPDATE).apply {
@@ -866,6 +867,7 @@ class MainActivity : ComponentActivity() {
 
             putExtra(Constants.PREFERENCES_DEFAULT_GLYPH, defaultGlyph)
             putExtra(Constants.PREFERENCES_APP_GLYPHS, appGlyphs)
+            putExtra(Constants.PREFERENCES_CONTACT_GLYPHS, contactGlyphs)
             putExtra(Constants.PREFERENCES_IGNORED_APPS, ignoredApps)
         }
 
@@ -1082,7 +1084,7 @@ class MainActivity : ComponentActivity() {
 
         val current = appGlyphs[i]
         val next = appGlyphs[p]
-        
+
         appGlyphs[i] = next
         appGlyphs[p] = current
 
@@ -1179,7 +1181,7 @@ class MainActivity : ComponentActivity() {
 
         val current = contactGlyphs[i]
         val next = contactGlyphs[p]
-        
+
         contactGlyphs[i] = next
         contactGlyphs[p] = current
 
@@ -1232,7 +1234,7 @@ class MainActivity : ComponentActivity() {
 
         val current = ignoredApps[i]
         val next = ignoredApps[p]
-        
+
         ignoredApps[i] = next
         ignoredApps[p] = current
 

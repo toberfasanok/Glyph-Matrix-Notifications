@@ -39,7 +39,7 @@ class GlyphMatrixService : Service() {
     private var animationRunnable: Runnable? = null
 
     private var initialized = false
-    private var glyph: Bitmap? = null
+    private var glyph: String? = null
     private val showDelay = 1750L
     private val matrixSize = 25
     private val cx = (matrixSize - 1) / 2.0
@@ -65,6 +65,8 @@ class GlyphMatrixService : Service() {
         if (intent?.action == Constants.ACTION_ON_SCREEN_ON) {
             if (glyph == null) return START_REDELIVER_INTENT
 
+            glyph = null
+
             showRunnable?.let { mainHandler.removeCallbacks(it) }
 
             clearRunnable?.let { mainHandler.removeCallbacks(it) }
@@ -76,10 +78,10 @@ class GlyphMatrixService : Service() {
             glyphMatrixManager?.closeAppMatrix()
         }
         else if (intent?.action == Constants.ACTION_ON_NOTIFICATION) {
-            val pkg = intent.getStringExtra(Constants.NOTIFICATION_EXTRA_PKG)
-            val contact = intent.getStringExtra(Constants.NOTIFICATION_EXTRA_CONTACT)
+            val notificationPkg = intent.getStringExtra(Constants.NOTIFICATION_EXTRA_PKG)
+            val notificationContact = intent.getStringExtra(Constants.NOTIFICATION_EXTRA_CONTACT)
 
-            if (!pkg.isNullOrBlank()) {
+            if (!notificationPkg.isNullOrBlank()) {
                 val ignoredApps = preferences.getString(Constants.PREFERENCES_IGNORED_APPS, null)
                 if (!ignoredApps.isNullOrBlank()) {
                     try {
@@ -87,19 +89,19 @@ class GlyphMatrixService : Service() {
                         for (i in 0 until arr.length()) {
                             val obj = arr.getJSONObject(i)
                             val appGlyphPkg = obj.optString("pkg")
-                            if (appGlyphPkg == pkg) {
+                            if (appGlyphPkg == notificationPkg) {
                                 return START_REDELIVER_INTENT
                             }
                         }
                     } catch (_: Throwable) {}
                 }
 
-                if (pkg.startsWith("com.android.") || pkg.startsWith("android.")) {
+                if (notificationPkg.startsWith("com.android.") || notificationPkg.startsWith("android.")) {
                     return START_REDELIVER_INTENT
                 }
 
                 try {
-                    val appInfo = packageManager.getApplicationInfo(pkg, 0)
+                    val appInfo = packageManager.getApplicationInfo(notificationPkg, 0)
                     val isPureSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0 &&
                                     (appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0
                     if (isPureSystem) {
@@ -107,6 +109,69 @@ class GlyphMatrixService : Service() {
                     }
                 } catch (_: Throwable) {}
             }
+
+            var newGlyph: String? = null
+
+            val contactGlyphs = preferences.getString(Constants.PREFERENCES_CONTACT_GLYPHS, null)
+            if (!contactGlyphs.isNullOrBlank() && !notificationContact.isNullOrBlank()) {
+                try {
+                    val arr = JSONArray(contactGlyphs)
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        val contactGlyphContact = obj.optString("label")
+                        val contactGlyph = obj.optString("glyph")
+                        if (contactGlyph.isNotBlank() && notificationContact.contains(contactGlyphContact, ignoreCase = true)) {
+                            val f = File(contactGlyph)
+                            if (f.exists()) {
+                                newGlyph = contactGlyph
+                                break
+                            }
+                        }
+                    }
+                } catch (_: Throwable) {}
+            }
+
+            if (newGlyph == null) {
+                val appGlyphs = preferences.getString(Constants.PREFERENCES_APP_GLYPHS, null)
+                if (!appGlyphs.isNullOrBlank() && !notificationPkg.isNullOrBlank()) {
+                    try {
+                        val arr = JSONArray(appGlyphs)
+                        for (i in 0 until arr.length()) {
+                            val obj = arr.getJSONObject(i)
+                            val appGlyphPkg = obj.optString("pkg")
+                            val appGlyph = obj.optString("glyph")
+                            if (appGlyphPkg == notificationPkg && appGlyph.isNotBlank()) {
+                                val f = File(appGlyph)
+                                if (f.exists()) {
+                                    newGlyph = appGlyph
+                                    break
+                                }
+                            }
+                        }
+                    } catch (_: Throwable) {}
+                }
+            }
+
+            if (newGlyph == null) {
+                val defaultGlyph = preferences.getString(Constants.PREFERENCES_DEFAULT_GLYPH, null)
+                if (!defaultGlyph.isNullOrBlank()) {
+                    try {
+                        val f = File(defaultGlyph)
+                        if (f.exists()) {
+                            newGlyph = defaultGlyph
+                        }
+                    } catch (_: Throwable) {}
+                }
+            }
+
+            if (newGlyph == null) return START_REDELIVER_INTENT
+
+            Log.d(tag, "Previous glyph: $glyph")
+            Log.d(tag, "Resolved glyph: $newGlyph")
+
+            if (newGlyph == glyph) return START_REDELIVER_INTENT
+
+            glyph = newGlyph
 
             showRunnable?.let { mainHandler.removeCallbacks(it) }
 
@@ -119,8 +184,8 @@ class GlyphMatrixService : Service() {
             glyphMatrixManager?.closeAppMatrix()
 
             val runnable = Runnable {
-                if (initialized) onGlyph(pkg, contact)
-                else onInit { onGlyph(pkg, contact) }
+                if (initialized) onGlyph()
+                else onInit { onGlyph() }
 
                 showRunnable = null
             }
@@ -173,65 +238,10 @@ class GlyphMatrixService : Service() {
         glyphMatrixManager?.init(glyphMatrixManagerCallback)
     }
 
-    private fun onGlyph(notificationPkg: String?, notificationContact: String?) {
+    private fun onGlyph() {
         Log.d(tag, "onGlyph")
 
         val preferences = getSharedPreferences(Constants.PREFERENCES_NAME, MODE_PRIVATE)
-
-        val contactGlyphs = preferences.getString(Constants.PREFERENCES_CONTACT_GLYPHS, null)
-        if (!contactGlyphs.isNullOrBlank() && !notificationContact.isNullOrBlank()) {
-            try {
-                val arr = JSONArray(contactGlyphs)
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    val contactGlyphContact = obj.optString("label")
-                    val contactGlyph = obj.optString("glyph")
-                    if (contactGlyph.isNotBlank() && notificationContact.contains(contactGlyphContact, ignoreCase = true)) {
-                        val f = File(contactGlyph)
-                        if (f.exists()) {
-                            glyph = BitmapFactory.decodeFile(contactGlyph)
-                            break
-                        }
-                    }
-                }
-            } catch (_: Throwable) {}
-        }
-
-        if (glyph == null) {
-            val appGlyphs = preferences.getString(Constants.PREFERENCES_APP_GLYPHS, null)
-            if (!appGlyphs.isNullOrBlank() && !notificationPkg.isNullOrBlank()) {
-                try {
-                    val arr = JSONArray(appGlyphs)
-                    for (i in 0 until arr.length()) {
-                        val obj = arr.getJSONObject(i)
-                        val appGlyphPkg = obj.optString("pkg")
-                        val appGlyph = obj.optString("glyph")
-                        if (appGlyphPkg == notificationPkg && appGlyph.isNotBlank()) {
-                            val f = File(appGlyph)
-                            if (f.exists()) {
-                                glyph = BitmapFactory.decodeFile(appGlyph)
-                                break
-                            }
-                        }
-                    }
-                } catch (_: Throwable) {}
-            }
-        }
-
-        if (glyph == null) {
-            val defaultGlyph = preferences.getString(Constants.PREFERENCES_DEFAULT_GLYPH, null)
-            if (!defaultGlyph.isNullOrBlank()) {
-                try {
-                    val f = File(defaultGlyph)
-                    if (f.exists()) {
-                        glyph = BitmapFactory.decodeFile(defaultGlyph)
-                    }
-                } catch (_: Throwable) {}
-            }
-        }
-
-        if (glyph == null) return
-
         val timeout = preferences.getLong(Constants.PREFERENCES_GLYPH_TIMEOUT, 5L).coerceAtLeast(1L) * 1000L
 
         fun clear() {
@@ -262,11 +272,11 @@ class GlyphMatrixService : Service() {
         }
     }
 
-    private fun showSimple(glyph: Bitmap, timeout: Long, operation: () -> Unit) {
+    private fun showSimple(glyph: String?, timeout: Long, operation: () -> Unit) {
         try {
             val objBuilder = GlyphMatrixObject.Builder()
             val image = objBuilder
-                .setImageSource(glyph)
+                .setImageSource(BitmapFactory.decodeFile(glyph))
                 .setScale(100)
                 .setOrientation(0)
                 .setPosition(0, 0)
@@ -291,8 +301,9 @@ class GlyphMatrixService : Service() {
         mainHandler.postDelayed(runnable, timeout)
     }
 
-    private fun showAnimated(glyph: Bitmap, timeout: Long, speed: Long, operation: () -> Unit) {
-        val src = glyph.scale(matrixSize, matrixSize)
+    private fun showAnimated(glyph: String?, timeout: Long, speed: Long, operation: () -> Unit) {
+        val bitmap = BitmapFactory.decodeFile(glyph)
+        val src = bitmap.scale(matrixSize, matrixSize)
 
         var radius = 0
 
@@ -338,10 +349,11 @@ class GlyphMatrixService : Service() {
         mainHandler.post(runnable)
     }
 
-    private fun hideAnimated(glyph: Bitmap, speed: Long, operation: () -> Unit) {
+    private fun hideAnimated(glyph: String?, speed: Long, operation: () -> Unit) {
         clearRunnable = null
 
-        val src = glyph.scale(matrixSize, matrixSize)
+        val bitmap = BitmapFactory.decodeFile(glyph)
+        val src = bitmap.scale(matrixSize, matrixSize)
 
         var radius = maxRadius
 

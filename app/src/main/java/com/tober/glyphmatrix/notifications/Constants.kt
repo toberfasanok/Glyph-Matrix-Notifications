@@ -17,7 +17,6 @@ object Constants {
     const val NOTIFICATION_EXTRA_PKG = "pkg"
     const val NOTIFICATION_EXTRA_CONTACT = "contact"
 
-    const val ACTION_ON_PREFERENCES_UPDATE = "com.tober.glyphmatrix.notifications.ACTION_ON_PREFERENCES_UPDATE"
     const val ACTION_ON_NOTIFICATION = "com.tober.glyphmatrix.notifications.ACTION_ON_NOTIFICATION"
     const val ACTION_ON_SCREEN_ON = "com.tober.glyphmatrix.notifications.ACTION_ON_SCREEN_ON"
 }
